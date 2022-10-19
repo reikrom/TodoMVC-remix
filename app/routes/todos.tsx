@@ -13,11 +13,18 @@ import React from "react";
 import cuid from "cuid";
 import { requireUserId } from "../session.server";
 import type { Todo } from "@prisma/client";
-import invariant from "tiny-invariant";
 import { CompleteIcon, IncompleteIcon } from "~/components/icons";
 import { clsx as cn } from "clsx";
 import { Filters } from "../components/Filters";
 import { TodoCount } from "../components/TodoCount";
+import {
+  createTodo,
+  destroyCompletedTodos,
+  destroyTodo,
+  toggleAllTodos,
+  toggleTodo,
+  updateTodo,
+} from "../models/todos.server";
 
 export const links: LinksFunction = () => {
   return [{ rel: "stylesheet", href: todosStylesheet }];
@@ -35,7 +42,7 @@ export async function loader({ request }: LoaderArgs) {
   });
 }
 
-enum Intent {
+enum I {
   Create = "create",
   Update = "update",
   Destroy = "destroy",
@@ -52,64 +59,24 @@ export async function action({ request }: ActionArgs) {
   const title = formData.get("title");
 
   switch (intent) {
-    case Intent.Create:
-      invariant(typeof id === "string", "id must be a string");
-      invariant(typeof title === "string", "title must be a string");
-      await prisma.todo.create({
-        data: {
-          id,
-          title,
-          completed: false,
-          user: {
-            connect: {
-              id: userId,
-            },
-          },
-        },
-      });
-      return new Response("ok");
-
-    case Intent.Destroy:
-      invariant(typeof id === "string", "id must be a string");
-      await prisma.todo.delete({
-        where: { id },
-      });
-      return new Response("ok");
-    case Intent.Update:
-      invariant(typeof id === "string", "id must be a string");
-      invariant(typeof title === "string", "title must be a string");
-      await prisma.todo.update({
-        where: { id },
-        data: { title },
-      });
-      return new Response("ok");
-
-    case Intent.DestroyCompleted:
-      await prisma.todo.deleteMany({
-        where: { userId, completed: true },
-      });
-      return new Response("ok");
-
-    case Intent.Toggle:
-      invariant(typeof id === "string", "id must be a string");
-      await prisma.todo.update({
-        where: { id },
-        data: { completed: formData.get("completed") !== "true" },
-      });
-      return new Response("ok");
-    case Intent.ToggleAll:
-      await prisma.todo.updateMany({
-        where: { userId },
-        data: { completed: formData.get("completed") === "true" },
-      });
-      return new Response("ok");
+    case I.Create:
+      return await createTodo(id, title, userId);
+    case I.Destroy:
+      return await destroyTodo(id);
+    case I.Update:
+      return await updateTodo(id, title);
+    case I.DestroyCompleted:
+      return await destroyCompletedTodos(userId);
+    case I.Toggle:
+      return await toggleTodo(id, formData);
+    case I.ToggleAll:
+      return await toggleAllTodos(userId, formData);
     default:
       throw new Error("unknown intent");
   }
 }
 
 export default function Todos() {
-  const createNewFormRef = React.useRef<HTMLFormElement>(null);
   const createNewFetcher = useFetcher();
   const toggleAllFetcher = useFetcher();
   const destroyCompletedFentcher = useFetcher();
@@ -149,7 +116,6 @@ export default function Todos() {
       <header className="header">
         <h1>todos</h1>
         <createNewFetcher.Form
-          ref={createNewFormRef}
           method="post"
           className="create-form"
           onSubmit={(event) => {
@@ -167,7 +133,7 @@ export default function Todos() {
           }}
         >
           <input type="hidden" name="id" value={cuid()} />
-          <input type="hidden" name="intent" value={Intent.Create} />
+          <input type="hidden" name="intent" value={I.Create} />
           <input
             type="text"
             className="new-todo"
@@ -184,7 +150,7 @@ export default function Todos() {
           <button
             className={`toggle-all ${allCompleted ? "checked" : ""}`}
             name="intent"
-            value={Intent.ToggleAll}
+            value={I.ToggleAll}
             type="submit"
           >
             ❯
@@ -208,7 +174,7 @@ export default function Todos() {
             type="submit"
             name="intent"
             hidden={!haveTodosToClear}
-            value={Intent.DestroyCompleted}
+            value={I.DestroyCompleted}
           >
             Clear completed
           </button>
@@ -240,14 +206,14 @@ const ListItem = ({ todo, filter }: { todo: TodoItem; filter: Filter }) => {
             className="toggle"
             type="submit"
             name="intent"
-            value={Intent.Toggle}
+            value={I.Toggle}
           >
             {todo.completed ? <CompleteIcon /> : <IncompleteIcon />}
           </button>
         </toggleTodoFetcher.Form>
 
         <updateFetcher.Form method="post">
-          <input type="hidden" name="intent" value={Intent.Update} />
+          <input type="hidden" name="intent" value={I.Update} />
           <input type="hidden" name="id" value={todo.id} />
           <input
             type="text"
@@ -268,7 +234,7 @@ const ListItem = ({ todo, filter }: { todo: TodoItem; filter: Filter }) => {
           <button
             type="submit"
             className="destroy"
-            value={Intent.Destroy}
+            value={I.Destroy}
             name="intent"
           />
         </destroyTodoFetcher.Form>
