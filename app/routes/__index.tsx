@@ -1,30 +1,23 @@
 import React from "react";
-import type { ActionArgs, LinksFunction, LoaderArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import type { LinksFunction, LoaderArgs } from "@remix-run/node";
 import {
   useCatch,
   useFetcher,
   useLoaderData,
   useLocation,
 } from "@remix-run/react";
+import type { Todo } from "@prisma/client";
 import cuid from "cuid";
 import { clsx as cn } from "clsx";
-import type { Todo } from "@prisma/client";
+import { json } from "@remix-run/node";
 
-import { prisma } from "~/db.server";
 import { requireUserId } from "~/session.server";
 import { CompleteIcon, IncompleteIcon } from "~/components/icons";
 import { Filters } from "~/components/Filters";
 import { TodoCount } from "~/components/TodoCount";
+import { I } from "~/routes/__index/$filter";
+import { prisma } from "~/db.server";
 import todosStylesheet from "~/styles/todos.css";
-import {
-  createTodo,
-  destroyCompletedTodos,
-  destroyTodo,
-  toggleAllTodos,
-  toggleTodo,
-  updateTodo,
-} from "~/models/todos.server";
 
 export const links: LinksFunction = () => {
   return [{ rel: "stylesheet", href: todosStylesheet }];
@@ -42,39 +35,21 @@ export async function loader({ request }: LoaderArgs) {
   });
 }
 
-enum I {
-  Create = "create",
-  Update = "update",
-  Destroy = "destroy",
-  DestroyCompleted = "destroyCompleted",
-  Toggle = "toggleTodo",
-  ToggleAll = "toggleAll",
-}
+/**
+  cleaner saner version is at: 
+    localhost:3000/todos
+    localhost:3000/todos/active
+    localhost:3000/todos/completed
 
-export async function action({ request }: ActionArgs) {
-  const userId = await requireUserId(request);
-  const formData = await request.formData();
-  const intent = formData.get("intent");
-  const id = formData.get("id");
-  const title = formData.get("title");
-
-  switch (intent) {
-    case I.Create:
-      return await createTodo(id, title, userId);
-    case I.Destroy:
-      return await destroyTodo(id);
-    case I.Update:
-      return await updateTodo(id, title);
-    case I.DestroyCompleted:
-      return await destroyCompletedTodos(userId);
-    case I.Toggle:
-      return await toggleTodo(id, formData);
-    case I.ToggleAll:
-      return await toggleAllTodos(userId, formData);
-    default:
-      throw new Error("unknown intent");
-  }
-}
+  Experimenting with spaRender...
+  Cannot have actions in layout __index.tsx file so moved them to routes/__index/$filter.tsx and calling them from here.
+  I tried avoiding shoving everything in root.tsx as an exercise but probably could have worked a lot simpler.
+  
+  things to revisit:
+  * calling actions from parents/root
+  * Find a better convention as to where to define spa type remix actions
+ */
+const spaRouteHack = "/__index?index";
 
 export default function Todos() {
   const createNewFetcher = useFetcher();
@@ -89,19 +64,6 @@ export default function Todos() {
   const haveTodosToClear = todos.length !== remainingTodos.length;
 
   const hasTodos = todos.length;
-  // TODO: get the createForm to reset through useEffect
-  // React.useEffect(() => {
-  //   if (!createNewFormRef.current) return;
-
-  //   if (isSubmitting) {
-  //     console.log(
-  //       "%ccreateNewFormRef%o",
-  //       "background: red; color: white;",
-  //       createNewFormRef.current.reset
-  //     );
-  //     // createNewFormRef.current.rest();
-  //   }
-  // }, [createNewFetcher.state, isSubmitting]);
   const location = useLocation();
   let filter: Filter = "all";
   if (location.pathname.endsWith("/complete")) {
@@ -112,75 +74,79 @@ export default function Todos() {
   }
 
   return (
-    <section className="todoapp">
-      <header className="header">
-        <h1>todos</h1>
-        <createNewFetcher.Form
-          method="post"
-          className="create-form"
-          onSubmit={(event) => {
-            const form = event.currentTarget;
-            const emptyInput =
-              new FormData(form)?.get("title")?.length === 0 || 0;
+    <>
+      <section className="todoapp">
+        <header className="header">
+          <h1>todos</h1>
+          <createNewFetcher.Form
+            action={spaRouteHack}
+            method="post"
+            className="create-form"
+            onSubmit={(event) => {
+              const form = event.currentTarget;
+              const emptyInput =
+                new FormData(form)?.get("title")?.length === 0 || 0;
 
-            if (emptyInput) {
-              event.preventDefault();
-              return;
-            }
-            requestAnimationFrame(() => {
-              form.reset();
-            });
-          }}
-        >
-          <input type="hidden" name="id" value={cuid()} />
-          <input type="hidden" name="intent" value={I.Create} />
-          <input
-            type="text"
-            className="new-todo"
-            name="title"
-            autoFocus
-            placeholder="What needs to be done?"
-          />
-        </createNewFetcher.Form>
-      </header>
-
-      <section className={cn("main", !hasTodos && "no-todos")}>
-        <toggleAllFetcher.Form method="post">
-          <input type="hidden" name="completed" value={`${!allCompleted}`} />
-          <button
-            className={`toggle-all ${allCompleted ? "checked" : ""}`}
-            name="intent"
-            value={I.ToggleAll}
-            type="submit"
+              if (emptyInput) {
+                event.preventDefault();
+                return;
+              }
+              requestAnimationFrame(() => {
+                form.reset();
+              });
+            }}
           >
-            ❯
-          </button>
-        </toggleAllFetcher.Form>
-        <ul className="todo-list">
-          {todos.map((todo) => (
-            <ListItem key={todo.id} todo={todo} filter={filter} />
-          ))}
-        </ul>
+            <input type="hidden" name="id" value={cuid()} />
+            <input type="hidden" name="intent" value={I.Create} />
+            <input
+              type="text"
+              className="new-todo"
+              name="title"
+              autoFocus
+              placeholder="What needs to be done?"
+            />
+          </createNewFetcher.Form>
+        </header>
+
+        <section className={cn("main", !hasTodos && "no-todos")}>
+          <toggleAllFetcher.Form action={spaRouteHack} method="post">
+            <input type="hidden" name="completed" value={`${!allCompleted}`} />
+            <button
+              className={`toggle-all ${allCompleted ? "checked" : ""}`}
+              name="intent"
+              value={I.ToggleAll}
+              type="submit"
+            >
+              ❯
+            </button>
+          </toggleAllFetcher.Form>
+          <ul className="todo-list">
+            {todos.map((todo) => (
+              <ListItem key={todo.id} todo={todo} filter={filter} />
+            ))}
+          </ul>
+        </section>
+
+        <footer hidden={!hasTodos} className="footer">
+          <TodoCount remainingTodos={remainingTodos} />
+          <Filters filter={filter} />
+          <destroyCompletedFentcher.Form action={spaRouteHack} method="post">
+            <input type="hidden" name="id" id="required" />
+            <input type="hidden" name="title" title="required" />
+            <button
+              className="clear-completed"
+              type="submit"
+              name="intent"
+              hidden={!haveTodosToClear}
+              value={I.DestroyCompleted}
+            >
+              Clear completed
+            </button>
+          </destroyCompletedFentcher.Form>
+        </footer>
       </section>
-
-      <footer hidden={!hasTodos} className="footer">
-        <TodoCount remainingTodos={remainingTodos} />
-        <Filters filter={filter} />
-        <destroyCompletedFentcher.Form method="post">
-          <input type="hidden" name="id" id="required" />
-          <input type="hidden" name="title" title="required" />
-          <button
-            className="clear-completed"
-            type="submit"
-            name="intent"
-            hidden={!haveTodosToClear}
-            value={I.DestroyCompleted}
-          >
-            Clear completed
-          </button>
-        </destroyCompletedFentcher.Form>
-      </footer>
-    </section>
+      {/* <Outlet /> */}
+    </>
   );
 }
 
@@ -199,7 +165,7 @@ const ListItem = ({ todo, filter }: { todo: TodoItem; filter: Filter }) => {
   return (
     <li className={todo.completed ? "completed" : ""} key={todo.id}>
       <div className="view">
-        <toggleTodoFetcher.Form method="post">
+        <toggleTodoFetcher.Form action={spaRouteHack} method="post">
           <input type="hidden" name="id" value={todo.id} />
           <input type="hidden" name="completed" value={`${todo.completed}`} />
           <button
@@ -212,7 +178,7 @@ const ListItem = ({ todo, filter }: { todo: TodoItem; filter: Filter }) => {
           </button>
         </toggleTodoFetcher.Form>
 
-        <updateFetcher.Form method="post">
+        <updateFetcher.Form action={spaRouteHack} method="post">
           <input type="hidden" name="intent" value={I.Update} />
           <input type="hidden" name="id" value={todo.id} />
           <input
@@ -228,7 +194,7 @@ const ListItem = ({ todo, filter }: { todo: TodoItem; filter: Filter }) => {
           />
         </updateFetcher.Form>
 
-        <destroyTodoFetcher.Form method="post">
+        <destroyTodoFetcher.Form action={spaRouteHack} method="post">
           <input type="hidden" name="id" value={todo.id} />
 
           <button

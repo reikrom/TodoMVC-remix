@@ -18,4 +18,13 @@ module.exports = {
       version: 28,
     },
   },
+  rules: {
+    "import/order": [
+      "warn",
+      {
+        groups: ["builtin", "external", "internal"],
+        "newlines-between": "always",
+      },
+    ],
+  },
 };

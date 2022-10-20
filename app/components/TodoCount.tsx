@@ -1,5 +1,6 @@
 import React from "react";
-import { TodoItem } from "../routes/todos";
+
+import type { TodoItem } from "../routes/todos";
 
 export const TodoCount = ({
   remainingTodos,

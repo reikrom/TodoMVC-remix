@@ -1,5 +1,6 @@
-import { prisma } from "~/db.server";
 import invariant from "tiny-invariant";
+
+import { prisma } from "~/db.server";
 
 export async function toggleTodo(
   id: FormDataEntryValue | null,
